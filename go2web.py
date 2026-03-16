@@ -7,10 +7,20 @@ import urllib.parse
 import os
 import hashlib
 import pickle
+import time
 from bs4 import BeautifulSoup
 
 MAX_REDIRECTS = 5
 CACHE_DIR = ".cache"
+CACHE_TTL = 3600  # Cache expires after 1 hour
+
+class Colors:
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
 
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
@@ -39,47 +49,56 @@ def parse_url(url):
 
 def make_request(url, redirects=0):
     if redirects > MAX_REDIRECTS:
-        print("Too many redirects.")
+        print(f"{Colors.FAIL}Too many redirects.{Colors.ENDC}")
         sys.exit(1)
-        
+
     cache_path = get_cache_path(url)
     if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            headers, body_data = pickle.load(f)
-            return headers, body_data
-            
+        if time.time() - os.path.getmtime(cache_path) < CACHE_TTL:
+            with open(cache_path, 'rb') as f:
+                headers, body_data = pickle.load(f)
+                return headers, body_data
+        else:
+            os.remove(cache_path)
+    
     scheme, host, port, path = parse_url(url)
-    
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    
+
     if scheme == 'https':
         context = ssl.create_default_context()
         sock = context.wrap_socket(sock, server_hostname=host)
-        
+
+    sock.settimeout(10.0)
+
     try:
         sock.connect((host, port))
     except Exception as e:
-        print(f"Connection error: {e}")
+        print(f"{Colors.FAIL}Connection error: {e}{Colors.ENDC}")
         sys.exit(1)
-        
+
     request = f"GET {path} HTTP/1.1\r\n"
     request += f"Host: {host}\r\n"
     request += "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n"
     request += "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.8\r\n"
     request += "Connection: close\r\n"
     request += "\r\n"
-    
+
     sock.sendall(request.encode('utf-8'))
-    
+
     response = b""
-    while True:
-        data = sock.recv(4096)
-        if not data:
-            break
-        response += data
-        
+    try:
+        while True:
+            data = sock.recv(4096)
+            if not data:
+                break
+            response += data
+    except socket.timeout:
+        pass
+    except Exception as e:
+        print(f"{Colors.FAIL}Error reading data:{Colors.ENDC} {e}")
+
     sock.close()
-    
     header_data, _, body_data = response.partition(b"\r\n\r\n")
     headers_text = header_data.decode('utf-8', errors='ignore')
     
@@ -150,8 +169,8 @@ def handle_search(term):
         
         snippet = results[i].get_text(strip=True)
         
-        print(f"{i+1}. {title}")
-        print(f"   URL: {link_href}")
+        print(f"{Colors.BOLD}{Colors.OKBLUE}{i+1}. {title}{Colors.ENDC}")
+        print(f"   {Colors.OKGREEN}URL:{Colors.ENDC} {link_href}")
         print(f"   Snippet: {snippet}\n")
 
 def main():
