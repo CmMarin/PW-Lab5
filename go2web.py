@@ -10,6 +10,7 @@ import pickle
 import time
 import threading
 import itertools
+import re
 from bs4 import BeautifulSoup
 
 MAX_REDIRECTS = 5
@@ -150,6 +151,71 @@ def make_request(url, redirects=0):
         
     return headers, body_data
 
+def render_html(body, base_url):
+    soup = BeautifulSoup(body, 'html.parser')
+    
+    # 1. Clean invisible and layout elements
+    for element in soup(["script", "style", "meta", "noscript", "svg", "canvas", "video", "audio", "nav", "footer"]):
+        element.decompose()
+        
+    # 2. Handle Images nicely
+    for img in soup.find_all('img'):
+        alt = img.get('alt', '').strip()
+        if alt:
+            img.replace_with(f" [🖼️  Image: {alt}] ")
+        else:
+            img.decompose()
+
+    # 3. Extract links and build footnote references
+    links = []
+    for a in soup.find_all('a'):
+        href = a.get('href')
+        text = a.get_text(strip=True)
+        if href and text and not href.startswith(('javascript:', 'mailto:', 'tel:')):
+            if href.startswith('/'): # resolve relative paths
+                parsed = urllib.parse.urlsplit(base_url)
+                href = f"{parsed.scheme}://{parsed.netloc}{href}"
+            elif not href.startswith('http'):
+                continue
+            
+            if href not in links:
+                links.append(href)
+            ref_num = links.index(href) + 1
+            
+            # Reconstruct the text with a citation bracket
+            a.clear()
+            a.append(f"{text} [{ref_num}]")
+            
+    # 4. Format Headers to ANSI Bold+Blue uppercase 
+    for header_tag in ['h1', 'h2', 'h3', 'h4']:
+        for h in soup.find_all(header_tag):
+            text = h.get_text(strip=True)
+            if text:
+                h.clear()
+                h.append(f"\n{Colors.BOLD}{Colors.OKBLUE}{text.upper()}{Colors.ENDC}\n")
+                
+    # 5. Format List Items with bullets
+    for li in soup.find_all('li'):
+        text = li.get_text(strip=True)
+        if text:
+            li.clear()
+            li.append(f"  • {text}")
+            
+    # 6. Final text extraction
+    text = soup.get_text(separator='\n', strip=True)
+    # Collapse 3+ newlines down to 2 for cleaner spacing
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    print(text)
+    
+    # 7. Print the collected external link References at the bottom
+    if links:
+        print(f"\n{Colors.BOLD}{Colors.WARNING}=== Page Links ==={Colors.ENDC}")
+        for i, link in enumerate(links[:40], 1): # Max 40 links to avoid flooding term
+            print(f" [{i}] {Colors.OKGREEN}{link}{Colors.ENDC}")
+        if len(links) > 40:
+            print(f"  ... and {len(links) - 40} more links.")
+
 def handle_url(url):
     spinner = Spinner(f"Fetching {url}...")
     spinner.start()
@@ -169,9 +235,7 @@ def handle_url(url):
             print(f"{Colors.FAIL}Failed to parse JSON{Colors.ENDC}")
             print(body.decode('utf-8', errors='ignore'))
     else:
-        soup = BeautifulSoup(body, 'html.parser')
-        text = soup.get_text(separator='\n', strip=True)
-        print(text)
+        render_html(body, url)
         
     print(f"\n{Colors.BOLD}{Colors.OKGREEN}►►► End of Response ◄◄◄{Colors.ENDC}\n")
 
