@@ -8,6 +8,8 @@ import os
 import hashlib
 import pickle
 import time
+import threading
+import itertools
 from bs4 import BeautifulSoup
 
 MAX_REDIRECTS = 5
@@ -21,6 +23,29 @@ class Colors:
     FAIL = '\033[91m'
     ENDC = '\033[0m'
     BOLD = '\033[1m'
+
+class Spinner:
+    def __init__(self, message="Working..."):
+        self.spinner = itertools.cycle(['-', '\\', '|', '/'])
+        self.stop_running = threading.Event()
+        self.thread = threading.Thread(target=self.spin_task, args=(message,))
+
+    def spin_task(self, message):
+        while not self.stop_running.is_set():
+            sys.stdout.write(f"\r{Colors.OKBLUE}{next(self.spinner)} {message}{Colors.ENDC}")
+            sys.stdout.flush()
+            time.sleep(0.1)
+        # Clear the spinner
+        sys.stdout.write('\r' + ' ' * (len(message) + 4) + '\r')
+        sys.stdout.flush()
+
+    def start(self):
+        self.stop_running.clear()
+        self.thread.start()
+
+    def stop(self):
+        self.stop_running.set()
+        self.thread.join()
 
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
@@ -126,33 +151,51 @@ def make_request(url, redirects=0):
     return headers, body_data
 
 def handle_url(url):
-    headers, body = make_request(url)
+    spinner = Spinner(f"Fetching {url}...")
+    spinner.start()
+    try:
+        headers, body = make_request(url)
+    finally:
+        spinner.stop()
+        
     content_type = headers.get('content-type', '')
+    
+    print(f"\n{Colors.BOLD}{Colors.OKGREEN}►►► Result for: {url} ◄◄◄{Colors.ENDC}\n")
     
     if 'application/json' in content_type:
         try:
             print(json.dumps(json.loads(body.decode('utf-8')), indent=2))
         except json.JSONDecodeError:
-            print("Failed to parse JSON")
+            print(f"{Colors.FAIL}Failed to parse JSON{Colors.ENDC}")
             print(body.decode('utf-8', errors='ignore'))
     else:
         soup = BeautifulSoup(body, 'html.parser')
         text = soup.get_text(separator='\n', strip=True)
         print(text)
+        
+    print(f"\n{Colors.BOLD}{Colors.OKGREEN}►►► End of Response ◄◄◄{Colors.ENDC}\n")
 
 def handle_search(term):
     # Using DuckDuckGo html version
     encoded_term = urllib.parse.quote_plus(term)
     url = f"https://html.duckduckgo.com/html/?q={encoded_term}"
-    headers, body = make_request(url)
+    
+    spinner = Spinner(f"Searching for '{term}'...")
+    spinner.start()
+    try:
+        headers, body = make_request(url)
+    finally:
+        spinner.stop()
     
     soup = BeautifulSoup(body, 'html.parser')
     results = soup.find_all('a', class_='result__snippet', limit=10)
     titles = soup.find_all('h2', class_='result__title', limit=10)
     links = soup.find_all('a', class_='result__url', limit=10)
     
+    print(f"\n{Colors.BOLD}{Colors.OKGREEN}=== Top 10 Results for '{term}' ==={Colors.ENDC}\n")
+
     if not results:
-        print("No results found.")
+        print(f"{Colors.WARNING}No results found.{Colors.ENDC}")
         return
         
     for i in range(len(results)):
@@ -160,20 +203,43 @@ def handle_search(term):
         link_href = links[i].get('href', '') if i < len(links) else ""
         if link_href.startswith('//'):
             link_href = 'https:' + link_href
-        elif 'duckduckgo.com/l/?uddg=' in link_href:
+        elif link_href.startswith('/'):
+            link_href = "https://duckduckgo.com" + link_href
+            
+        if '/l/?uddg=' in link_href:
             parsed_link = urllib.parse.parse_qs(urllib.parse.urlsplit(link_href).query)
             if 'uddg' in parsed_link:
                 link_href = urllib.parse.unquote(parsed_link['uddg'][0])
-        elif link_href.startswith('/'):
-            link_href = "https://duckduckgo.com" + link_href
         
         snippet = results[i].get_text(strip=True)
         
-        print(f"{Colors.BOLD}{Colors.OKBLUE}{i+1}. {title}{Colors.ENDC}")
-        print(f"   {Colors.OKGREEN}URL:{Colors.ENDC} {link_href}")
-        print(f"   Snippet: {snippet}\n")
+        print(f"{Colors.BOLD}{Colors.OKBLUE}[{i+1}] {title}{Colors.ENDC}")
+        print(f"    {Colors.WARNING}URL:{Colors.ENDC} {link_href}")
+        print(f"    {snippet}\n")
+
+def print_banner():
+    banner = f"""{Colors.OKBLUE}{Colors.BOLD}
+   ____      ___        __    _          _     
+  / __ \____|__ \_      __  __| |        | |    
+ / / _`/ __ \ / /| | /| / / _ \| '_ \ 
+/ /_/ / /_/ // /_| |/ |/ /  __/| |_) |
+\____/\____//____|__/|__/ \___||_.__/ 
+{Colors.ENDC}"""
+    print(banner)
+
+def print_custom_help():
+    print_banner()
+    print(f"  {Colors.BOLD}go2web - a simple CLI HTTP client{Colors.ENDC}\n")
+    print(f"  {Colors.BOLD}Usage:{Colors.ENDC}")
+    print(f"    {Colors.OKGREEN}go2web -u <URL>{Colors.ENDC}         Fetch and display a URL")
+    print(f"    {Colors.OKGREEN}go2web -s <term>{Colors.ENDC}        Search and print top 10 results")
+    print(f"    {Colors.OKGREEN}go2web -h{Colors.ENDC}               Show this help\n")
 
 def main():
+    if len(sys.argv) == 1 or '-h' in sys.argv or '--help' in sys.argv:
+        print_custom_help()
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(description="go2web - a simple CLI HTTP client", add_help=False)
     parser.add_argument('-u', '--url', type=str, help="make an HTTP request to the specified URL and print the response")
     parser.add_argument('-s', '--search', type=str, nargs='+', help="make an HTTP request to search the term using your favorite search engine and print top 10 results")
