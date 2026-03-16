@@ -24,6 +24,9 @@ class Colors:
     FAIL = '\033[91m'
     ENDC = '\033[0m'
     BOLD = '\033[1m'
+    BG_GRAY = '\033[100m'
+    ITALIC = '\033[3m'
+    CYAN = '\033[96m'
 
 class Spinner:
     def __init__(self, message="Working..."):
@@ -192,15 +195,29 @@ def render_html(body, base_url):
             text = h.get_text(strip=True)
             if text:
                 h.clear()
-                h.append(f"\n{Colors.BOLD}{Colors.OKBLUE}{text.upper()}{Colors.ENDC}\n")
+                # Underline strings via string formatting to look distinct
+                border = "=" * len(text) if header_tag == 'h1' else "-" * len(text)
+                h.append(f"\n{Colors.BOLD}{Colors.OKBLUE}{text.upper()}\n{border}{Colors.ENDC}\n")
                 
     # 5. Format List Items with bullets
     for li in soup.find_all('li'):
         text = li.get_text(strip=True)
         if text:
             li.clear()
-            li.append(f"  • {text}")
+            li.append(f"  {Colors.CYAN}•{Colors.ENDC} {text}")
             
+    # 5.5 Render code blocks like Markdown (Gray background)
+    for code in soup.find_all(['pre', 'code']):
+        text = code.get_text(strip=True)
+        if text:
+            styled_code = []
+            for line in text.split('\n'):
+                # Add background gray to each line, pad to a fixed minimum width to look like a block
+                styled_code.append(f"{Colors.BG_GRAY} {line.ljust(60)} {Colors.ENDC}")
+            
+            code.clear()
+            code.append(f"\n" + "\n".join(styled_code) + "\n")
+
     # 6. Final text extraction
     text = soup.get_text(separator='\n', strip=True)
     # Collapse 3+ newlines down to 2 for cleaner spacing
