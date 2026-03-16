@@ -46,4 +46,5 @@ go2web -h
 * **Graceful Timeouts**: Integrated strict timeout handles on sockets so poorly coded external web servers don't crash or hang the script indefinitely.
 
 ## GIF Demo
+![go2web Demo](demo.gif)
 
