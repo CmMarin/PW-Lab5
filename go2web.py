@@ -186,49 +186,63 @@ def render_html(body, base_url):
             ref_num = links.index(href) + 1
             
             # Reconstruct the text with a citation bracket
-            a.clear()
-            a.append(f"{text} [{ref_num}]")
+            a.replace_with(f"{text} [{ref_num}]")
+
+    # define a marker for newlines that won't be stripped
+    NL_MARKER = "||__NL__||"
             
-    # 4. Format Headers to ANSI Bold+Blue uppercase 
+    # 4. Format Headers
     for header_tag in ['h1', 'h2', 'h3', 'h4']:
         for h in soup.find_all(header_tag):
             text = h.get_text(strip=True)
             if text:
-                h.clear()
-                # Underline strings via string formatting to look distinct
                 border = "=" * len(text) if header_tag == 'h1' else "-" * len(text)
-                h.append(f"\n{Colors.BOLD}{Colors.OKBLUE}{text.upper()}\n{border}{Colors.ENDC}\n")
+                # Replace the header tag entirely with our formatted string
+                h.replace_with(f"{NL_MARKER}{NL_MARKER}{Colors.BOLD}{Colors.OKBLUE}{text.upper()}{Colors.ENDC}{NL_MARKER}{border}{NL_MARKER}")
                 
-    # 5. Format List Items with bullets
+    # 5. Format List Items
     for li in soup.find_all('li'):
         text = li.get_text(strip=True)
         if text:
-            li.clear()
-            li.append(f"  {Colors.CYAN}•{Colors.ENDC} {text}")
-            
-    # 5.5 Render code blocks like Markdown (Gray background)
+            li.replace_with(f"{NL_MARKER}  {Colors.CYAN}•{Colors.ENDC} {text}")
+
+    # 5.5 Render code blocks
     for code in soup.find_all(['pre', 'code']):
         text = code.get_text(strip=True)
         if text:
             styled_code = []
             for line in text.split('\n'):
-                # Add background gray to each line, pad to a fixed minimum width to look like a block
                 styled_code.append(f"{Colors.BG_GRAY} {line.ljust(60)} {Colors.ENDC}")
-            
-            code.clear()
-            code.append(f"\n" + "\n".join(styled_code) + "\n")
+            code.replace_with(f"{NL_MARKER}" + f"{NL_MARKER}".join(styled_code) + f"{NL_MARKER}")
 
-    # 6. Final text extraction
-    text = soup.get_text(separator='\n', strip=True)
-    # Collapse 3+ newlines down to 2 for cleaner spacing
+    # 6. Ensure block elements break lines
+    for tag in soup.find_all(['p', 'div', 'tr', 'br']):
+        tag.append(NL_MARKER)
+
+    # 7. Final text extraction
+    # Use separator=' ' to prevent inline text from jamming, 
+    # but strip=True to clean up source indentation
+    text = soup.get_text(separator=' ', strip=True)
+    
+    # Replace markers with real newlines
+    text = text.replace(NL_MARKER, '\n')
+    
+    # Clean up double spaces created by the ' ' separator
+    text = re.sub(r' +', ' ', text)
+    
+    # Fix spaces around newlines
+    text = re.sub(r' \n', '\n', text)
+    text = re.sub(r'\n ', '\n', text)
+    
+    # Collapse 3+ newlines
     text = re.sub(r'\n{3,}', '\n\n', text)
     
     print(text)
     
-    # 7. Print the collected external link References at the bottom
+    # 8. Print the collected external link References at the bottom
     if links:
         print(f"\n{Colors.BOLD}{Colors.WARNING}=== Page Links ==={Colors.ENDC}")
-        for i, link in enumerate(links[:40], 1): # Max 40 links to avoid flooding term
+        for i, link in enumerate(links[:40], 1): 
             print(f" [{i}] {Colors.OKGREEN}{link}{Colors.ENDC}")
         if len(links) > 40:
             print(f"  ... and {len(links) - 40} more links.")
@@ -299,9 +313,9 @@ def handle_search(term):
         print(f"    {snippet}\n")
 
 def print_banner():
-    banner = f"""{Colors.OKBLUE}{Colors.BOLD}
-   ____      ___        __    _          _     
-  / __ \____|__ \_      __  __| |        | |    
+    banner = rf"""{Colors.OKBLUE}{Colors.BOLD}
+   ____      ___               __               
+  / __ \____|__ \_ __  __ _ __ | |_   
  / / _`/ __ \ / /| | /| / / _ \| '_ \ 
 / /_/ / /_/ // /_| |/ |/ /  __/| |_) |
 \____/\____//____|__/|__/ \___||_.__/ 
